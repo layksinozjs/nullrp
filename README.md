@@ -1,5 +1,7 @@
 # NullRP 🎮
 
+- Still on developing.
+
 **NullRP** is a simple terminal-based role-playing game (RPG) written in C.  
 Choose your character, pick a starting item, and begin your adventure!
 
