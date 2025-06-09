@@ -27,6 +27,16 @@ typedef struct {
     Inventory *inventory;
 } Character;
 
+typedef struct {
+    char name[50];
+    int health;
+    int attack;
+} Enemy;
+
+typedef struct{
+char name[50];
+} maps;
+
 
 
 Inventory* createInventory(int initialCapacity) {
@@ -54,6 +64,7 @@ int main() {
         {"Huzk", 100, 5, 1, NULL},
         {"Garret", 130, 0, 1, NULL}
     };
+    
 
     printf("   O\n");
     printf("  /|\\ Welcome To NullRP\n");
@@ -119,6 +130,7 @@ int main() {
     
     
     
+    
     printf("\nYou are starting with  %s and you are using %s Good Luck!\n", player.name,selecteditem.name);
     
     player.health += selecteditem.durability;
@@ -126,13 +138,49 @@ int main() {
     if (selecteditem.ismagic) {
     player.mana += 20;
 }
+
+free(player.inventory->items);
+    free(player.inventory);
     
     printf("\nUpdated Stats!\n");
     printf("--------------\n");
     printf("Your Health : %d\nYour Mana = %d \nYour Level %d" ,player.health,player.mana,player.level);
 
-    free(player.inventory->items);
-    free(player.inventory);
 
-    return 0;
+
+    
+    
+    for (int i = 0; i < player.inventory->itemcount; i++) {
+    printf("%s\n", player.inventory->items[i].name);
+}
+    
+    int experience = 0;
+    int expToLevelUp = 50;
+    int gold = 50;
+    
+    void openShop(Character *player);
+    
+    
+    maps tmaps[4] = {
+    {"Chilly 🤙"},
+    {"Forest 🌴"},
+    {"Desert 🏜️"},
+    {"Island 🏝️"}
+    };
+    
+    int mapchoice;
+    
+    printf("\n\nSelect Your Map");
+    printf("\n-----------------\n");
+    for (int z = 0; z < 4; z++) {
+    printf("%d. %s\n", z + 1, tmaps[z].name);
+}
+printf("Your Choice: ");
+scanf("%d",&mapchoice);
+
+    
+    FILE *f = fopen("save.txt", "w");
+fprintf(f, "%s %d %d", player.name, player.health, player.level);
+fclose(f);
+return 0;
 }
