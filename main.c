@@ -4,6 +4,16 @@
 #include <time.h>
 #include <stdbool.h>
 
+#ifdef _WIN32
+#define CLEAR "cls"
+#else
+#define CLEAR "clear"
+#endif
+
+void clearScreen() {
+    system(CLEAR);
+}
+
 typedef struct {
     char name[50];
     int power;
@@ -14,7 +24,8 @@ typedef struct {
 typedef struct {
     Item *items;
     int capacity;
-    int itemcount;
+    int count;
+    int equippedIndex; // -1 none
 } Inventory;
 
 typedef struct {
@@ -33,238 +44,382 @@ typedef struct {
 
 typedef struct {
     char name[50];
-} maps;
+} Map;
 
-Inventory* createInventory(int initialCapacity) {
+Inventory* createInventory(int capacity) {
     Inventory *inv = malloc(sizeof(Inventory));
-    inv->items = calloc(initialCapacity, sizeof(Item));
-    inv->capacity = initialCapacity;
-    inv->itemcount = 0;
+    inv->items = calloc(capacity, sizeof(Item));
+    inv->capacity = capacity;
+    inv->count = 0;
+    inv->equippedIndex = -1;
     return inv;
 }
 
-void clearScreen() {
-#ifdef _WIN32
-    system("cls");
-#else
-    system("clear");
-#endif
+void addItem(Inventory *inv, Item item) {
+    if (inv->count >= inv->capacity) {
+        inv->capacity *= 2;
+        inv->items = realloc(inv->items, sizeof(Item)*inv->capacity);
+    }
+    inv->items[inv->count++] = item;
+    printf("You obtained: %s\n", item.name);
 }
 
-void saveGame(Character *player, maps selectedMap) {
-    FILE *f = fopen("save.txt", "w");
-    if (f == NULL) {
-        printf("Save file could not be created.\n");
+void listInventory(Inventory *inv) {
+    if (inv->count == 0) {
+        printf("Inventory is empty.\n");
         return;
     }
-
-    fprintf(f, "NAME:%s\n", player->name);
-    fprintf(f, "HEALTH:%d\n", player->health);
-    fprintf(f, "MANA:%d\n", player->mana);
-    fprintf(f, "LEVEL:%d\n", player->level);
-    fprintf(f, "MAP:%s\n", selectedMap.name);
-    fprintf(f, "ITEMCOUNT:%d\n", player->inventory->itemcount);
-    for (int i = 0; i < player->inventory->itemcount; i++) {
-        Item item = player->inventory->items[i];
-        fprintf(f, "ITEM:%s,%d,%d,%d\n", item.name, item.power, item.durability, item.ismagic);
+    printf("Inventory:\n");
+    for (int i = 0; i < inv->count; i++) {
+        printf("%d) %s (Power: %d, Durability: %d, Magic: %s)%s\n",
+               i+1,
+               inv->items[i].name,
+               inv->items[i].power,
+               inv->items[i].durability,
+               inv->items[i].ismagic ? "Yes" : "No",
+               (i == inv->equippedIndex) ? " [Equipped]" : "");
     }
+}
 
-    fclose(f);
-    printf("Game saved successfully.\n");
+int getEquippedPower(Character *p) {
+    if (p->inventory->equippedIndex == -1) return 5;
+    return p->inventory->items[p->inventory->equippedIndex].power;
+}
+
+void equipItem(Character *p) {
+    if (p->inventory->count == 0) {
+        printf("No equipment in inventory.\n");
+        return;
+    }
+    listInventory(p->inventory);
+    printf("Enter the number of the item you want to equip (0 to cancel): ");
+    int c;
+    if (scanf("%d", &c) != 1 || c < 0 || c > p->inventory->count) {
+        while(getchar() != '\n');
+        printf("Invalid choice.\n");
+        return;
+    }
+    while(getchar() != '\n');
+    if (c == 0) {
+        printf("Equip cancelled.\n");
+        return;
+    }
+    p->inventory->equippedIndex = c - 1;
+    printf("%s is now equipped.\n", p->inventory->items[p->inventory->equippedIndex].name);
+}
+
+void unequipItem(Character *p) {
+    if (p->inventory->equippedIndex == -1) {
+        printf("No item is currently equipped.\n");
+        return;
+    }
+    printf("%s was unequipped.\n", p->inventory->items[p->inventory->equippedIndex].name);
+    p->inventory->equippedIndex = -1;
+}
+
+void fight(Character *p, Enemy enemies[], int enemyCount, int *gold) {
+    clearScreen();
+    Enemy enemy = enemies[rand() % enemyCount];
+    int enemyHealth = enemy.health;
+    printf("You encountered: %s!\nEnemy Health: %d, Attack: %d\n", enemy.name, enemyHealth, enemy.attack);
+
+    while (p->health > 0 && enemyHealth > 0) {
+        printf("\nPress 'a' to attack, 'r' to run: ");
+        char act = getchar();
+        while(getchar() != '\n');
+
+        if (act == 'a' || act == 'A') {
+            int dmg = (rand() % getEquippedPower(p)) + 1;
+            enemyHealth -= dmg;
+            printf("You dealt %d damage to the enemy.\n", dmg);
+
+            if (enemyHealth <= 0) {
+                printf("You defeated the enemy!\n");
+                int earned = rand() % 41; // 0-40 gold
+                *gold += earned;
+                printf("Gold earned: %d | Total Gold: %d\n", earned, *gold);
+                break;
+            }
+
+            int edmg = (rand() % enemy.attack) + 1;
+            p->health -= edmg;
+            printf("%s dealt %d damage to you.\n", enemy.name, edmg);
+
+            if (p->health <= 0) {
+                printf("You have been defeated...\n");
+                int lost = (*gold >= 100) ? 100 : *gold;
+                *gold -= lost;
+                printf("Gold lost: %d | Remaining Gold: %d\n", lost, *gold);
+                break;
+            }
+            printf("Your Health: %d | Enemy Health: %d\n", p->health, enemyHealth);
+        } else if (act == 'r' || act == 'R') {
+            printf("You ran away.\n");
+            break;
+        } else {
+            printf("Invalid key!\n");
+        }
+    }
+    printf("Press Enter to continue...");
+    getchar();
+    clearScreen();
+}
+
+void market(Character *p, Item marketItems[], int count, int *gold) {
+    while (1) {
+        clearScreen();
+        printf("MARKET | Gold: %d\n", *gold);
+        for (int i = 0; i < count; i++) {
+            int cost = marketItems[i].power * 2;
+            printf("%d) %s (Power: %d, Durability: %d) Price: %d gold\n",
+                   i+1, marketItems[i].name, marketItems[i].power, marketItems[i].durability, cost);
+        }
+        printf("0) Exit Market\nYour choice: ");
+        int c;
+        if (scanf("%d", &c) != 1) {
+            while(getchar() != '\n');
+            printf("Invalid input.\n");
+            continue;
+        }
+        while(getchar() != '\n');
+
+        if (c == 0) break;
+        if (c < 1 || c > count) {
+            printf("Invalid choice.\n");
+            continue;
+        }
+        Item selected = marketItems[c-1];
+        int cost = selected.power * 2;
+        if (*gold >= cost) {
+            *gold -= cost;
+            addItem(p->inventory, selected);
+            printf("%s purchased!\n", selected.name);
+        } else {
+            printf("Not enough gold!\n");
+        }
+        printf("Press Enter to continue...");
+        getchar();
+    }
+}
+
+void wizard(Character *p, int *gold) {
+    clearScreen();
+    printf("Wizard Tower\nMana refill costs 10 gold.\nCurrent Mana: %d\nDo you want to refill? (y/n): ", p->mana);
+    char ch = getchar();
+    while(getchar() != '\n');
+    if (ch == 'y' || ch == 'Y') {
+        if (*gold >= 10) {
+            *gold -= 10;
+            p->mana = 100;
+            printf("Mana refilled!\n");
+        } else {
+            printf("Not enough gold.\n");
+        }
+    } else {
+        printf("Cancelled.\n");
+    }
+    printf("Press Enter to continue...");
+    getchar();
+}
+
+void loot(Character *p, Item lootItems[], int count, time_t *lastLoot) {
+    time_t now = time(NULL);
+    double diff = difftime(now, *lastLoot);
+    if (diff < 600) {
+        printf("You need to wait %d more seconds before looting again.\n", 600 - (int)diff);
+        return;
+    }
+    int i = rand() % count;
+    addItem(p->inventory, lootItems[i]);
+    *lastLoot = now;
 }
 
 int main() {
-    Item freeitems[4] = {
-        {"Fire Blade", 25, 35, false},
-        {"Lominal Axe", 35, 25, false},
-        {"Bow of Magic", 18, 40, true},
-        {"Blessed Katana", 20, 40, false}
+    srand(time(NULL));
+
+    Item freeItems[4] = {
+        {"Fire Blade 🔥", 25, 35, false},
+        {"Lominal Axe 🪓", 35, 25, false},
+        {"Bow of Magic 🏹", 18, 40, true},
+        {"Blessed Katana ⚔️", 20, 40, false}
     };
 
     Character freeCharacters[4] = {
-        {"Kevin", 90, 10, 1, NULL},
-        {"Londa", 75, 30, 1, NULL},
-        {"Huzk", 100, 5, 1, NULL},
-        {"Garret", 130, 0, 1, NULL}
+        {"Kevin 😎", 90, 10, 1, NULL},
+        {"Londa 🌸", 75, 30, 1, NULL},
+        {"Huzk 🧙", 100, 5, 1, NULL},
+        {"Garret 💪", 130, 0, 1, NULL}
     };
 
-    printf("   O\n");
-    printf("  /|\\ Welcome To NullRP\n");
-    printf("  / \\\n");
-    printf("------------------------\n");
+    Enemy enemies[4] = {
+        {"Lorenzo The Great", 75, 10},
+        {"Evil Kevin", 55, 25},
+        {"Millenium", 65, 15},
+        {"Zopeda", 70, 20}
+    };
 
-    printf("Select Your Character:\n");
-    for(int i = 0; i < 4; i++){
-        printf("%d. %s - Health: %d, Mana: %d, Level: %d\n",
-               i + 1,
-               freeCharacters[i].name,
-               freeCharacters[i].health,
-               freeCharacters[i].mana,
-               freeCharacters[i].level);
-    }
-
-    int startchoice = 0;
-    int inputStatus;
-
-    do {
-        printf("\nEnter your choice: ");
-        inputStatus = scanf("%d", &startchoice);
-        while(getchar() != '\n'); // input temizliği
-        if (inputStatus != 1 || startchoice < 1 || startchoice > 4) {
-            printf("Invalid choice select between 1-4.\n");
-        }
-    } while (inputStatus != 1 || startchoice < 1 || startchoice > 4);
-
-    Character player = freeCharacters[startchoice - 1];
-    player.inventory = createInventory(10);
-
-    printf("\nAvailable Items:\n");
-    for (int j = 0; j < 4; j++) {
-        printf("%d. %s - Power: %d, Durability: %d, Magic: %s\n",
-               j + 1,
-               freeitems[j].name,
-               freeitems[j].power,
-               freeitems[j].durability,
-               freeitems[j].ismagic ? "Yes" : "No");
-    }
-
-    int startitemchoice;
-
-    do {
-        printf("\nSelect Your Item (Durability Affects Health): ");
-        inputStatus = scanf("%d", &startitemchoice);
-        while(getchar() != '\n');
-        if (inputStatus != 1 || startitemchoice < 1 || startitemchoice > 4) {
-            printf("Invalid choice select between 1-4.\n");
-        }
-    } while (inputStatus != 1 || startitemchoice < 1 || startitemchoice > 4);
-
-    Item selecteditem = freeitems[startitemchoice - 1];
-    player.inventory->items[player.inventory->itemcount++] = selecteditem;
-
-    printf("\nYou are starting with  %s and you are using %s Good Luck!\n", player.name, selecteditem.name);
-
-    player.health += selecteditem.durability;
-    if (selecteditem.ismagic) {
-        player.mana += 20;
-    }
-
-    printf("\nUpdated Stats!\n");
-    printf("--------------\n");
-    printf("Your Health : %d\nYour Mana = %d \nYour Level %d\n" ,player.health,player.mana,player.level);
-
-    for (int i = 0; i < player.inventory->itemcount; i++) {
-        printf("%s\n", player.inventory->items[i].name);
-    }
-
-    maps tmaps[4] = {
+    Map maps[4] = {
         {"Chilly 🤙"},
         {"Forest 🌴"},
         {"Desert 🏜️"},
         {"Island 🏝️"}
     };
 
-    maps selectedMap;
+    Item lootItems[4] = {
+        {"Rusty Sword", 10, 10, false},
+        {"Healing Potion", 0, 0, true},
+        {"Magic Staff", 15, 20, true},
+        {"Steel Dagger", 12, 15, false}
+    };
 
-    printf("\n\nSelect Your Map");
-    printf("\n-----------------\n");
-    for (int z = 0; z < 4; z++) {
-        printf("%d. %s\n", z + 1, tmaps[z].name);
-    }
+    Item marketItems[4] = {
+        {"Iron Sword", 20, 25, false},
+        {"Silver Axe", 30, 20, false},
+        {"Enchanted Bow", 25, 30, true},
+        {"Golden Katana", 35, 40, false}
+    };
 
-    int mapchoice;
+    int gold = 0;
+    time_t lastLootTime = 0;
 
-    do {
-        printf("Your Choice (1-4): ");
-        inputStatus = scanf("%d", &mapchoice);
-        while(getchar() != '\n');
-        if (inputStatus != 1 || mapchoice < 1 || mapchoice > 4) {
-            printf("Invalid choice select between 1-4.\n");
-        }
-    } while (inputStatus != 1 || mapchoice < 1 || mapchoice > 4);
-
-    selectedMap = tmaps[mapchoice - 1];
-
-    printf("\nTeleporting you to %s...", selectedMap.name);
     clearScreen();
-    printf("\033[2J\033[H");
+    printf("\nWelcome to NullRP\n\n");
 
-    int experience = 0;
-    int expToLevelUp = 50;
-    int gold = 50;
-
-    // Main Menu
-    saveGame(&player,selectedMap);
-    printf("\n   O   Main Menu\n");
-    printf("  /|\\  %s / %s\n", player.name, selecteditem.name);
-    printf("  / \\  %s\n", selectedMap.name);
-    printf("------------------------\n");
-    printf("\nStats:\n");
-    printf("--------------\n");
-    printf("Your Health : %d\nYour Mana = %d \nYour Level %d\n" ,player.health,player.mana,player.level);
-    printf("\nInventory:\n");
-
-    for (int i = 0; i < player.inventory->itemcount; i++) {
-        printf("- %s (Power: %d, Durability: %d, Magic: %s)\n",
-            player.inventory->items[i].name,
-            player.inventory->items[i].power,
-            player.inventory->items[i].durability,
-            player.inventory->items[i].ismagic ? "Have Magic" : "Not Magic");
+    // Select Character
+    printf("Select your character:\n");
+    for (int i = 0; i < 4; i++) {
+        printf("%d) %s (HP: %d, Mana: %d, Level: %d)\n", i+1, freeCharacters[i].name, freeCharacters[i].health, freeCharacters[i].mana, freeCharacters[i].level);
     }
-
-    int choice = 0;
+    int ch;
     do {
-        printf("\n===== Menu =====\n");
-        printf("1. View Stats\n");
-        printf("2. View Inventory\n");
-        printf("3. Save Game\n");
-        printf("4. Exit Game\n");
-        printf("5. Get into a fight\n");
-        printf("6. Go for a loot\n");
-        printf("7. Gamble\n");
-        printf("Your Choice: ");
-        inputStatus = scanf("%d", &choice);
+        printf("Your choice: ");
+        if (scanf("%d", &ch) != 1 || ch < 1 || ch > 4) {
+            while(getchar() != '\n');
+            printf("Invalid choice.\n");
+        } else break;
+    } while(1);
+    while(getchar() != '\n');
+
+    Character player = freeCharacters[ch - 1];
+    player.inventory = createInventory(10);
+
+    // Select starting item
+    printf("\nSelect your starting item:\n");
+    for (int i = 0; i < 4; i++) {
+        printf("%d) %s (Power: %d, Durability: %d, Magic: %s)\n",
+               i+1, freeItems[i].name, freeItems[i].power, freeItems[i].durability, freeItems[i].ismagic ? "Yes" : "No");
+    }
+    int itemCh;
+    do {
+        printf("Your choice: ");
+        if (scanf("%d", &itemCh) != 1 || itemCh < 1 || itemCh > 4) {
+            while(getchar() != '\n');
+            printf("Invalid choice.\n");
+        } else break;
+    } while(1);
+    while(getchar() != '\n');
+
+    addItem(player.inventory, freeItems[itemCh - 1]);
+    player.inventory->equippedIndex = 0;
+
+    // Select map
+    printf("\nSelect your map:\n");
+    for (int i = 0; i < 4; i++) {
+        printf("%d) %s\n", i+1, maps[i].name);
+    }
+    int mapCh;
+    do {
+        printf("Your choice: ");
+        if (scanf("%d", &mapCh) != 1 || mapCh < 1 || mapCh > 4) {
+            while(getchar() != '\n');
+            printf("Invalid choice.\n");
+        } else break;
+    } while(1);
+    while(getchar() != '\n');
+
+    Map selectedMap = maps[mapCh - 1];
+
+    clearScreen();
+
+    int running = 1;
+    while(running) {
+        printf("Main Menu - Map: %s | Health: %d | Mana: %d | Gold: %d\n\n", selectedMap.name, player.health, player.mana, gold);
+        printf("1) Fight\n");
+        printf("2) Inventory\n");
+        printf("3) Equip Item\n");
+        printf("4) Unequip Item\n");
+        printf("5) Market\n");
+        printf("6) Wizard\n");
+        printf("7) Loot (Once every 10 minutes)\n");
+        printf("8) Save Game\n");
+        printf("0) Exit\n");
+        printf("\nChoose an option: ");
+        int opt;
+        if (scanf("%d", &opt) != 1) {
+            while(getchar() != '\n');
+            printf("Invalid input.\n");
+            continue;
+        }
         while(getchar() != '\n');
 
-        switch (choice) {
+        switch(opt) {
             case 1:
-                printf("\n--- Stats ---\n");
-                printf("Name: %s\n", player.name);
-                printf("Health: %d\n", player.health);
-                printf("Mana: %d\n", player.mana);
-                printf("Level: %d\n", player.level);
+                fight(&player, enemies, 4, &gold);
                 break;
             case 2:
-                printf("\n--- Inventory ---\n");
-                for (int i = 0; i < player.inventory->itemcount; i++) {
-                    printf("- %s (Power: %d, Durability: %d, Magic: %s)\n",
-                           player.inventory->items[i].name,
-                           player.inventory->items[i].power,
-                           player.inventory->items[i].durability,
-                           player.inventory->items[i].ismagic ? "Yes" : "No");
-                }
+                clearScreen();
+                listInventory(player.inventory);
+                printf("\nPress Enter to continue...");
+                getchar();
+                clearScreen();
                 break;
             case 3:
-                saveGame(&player, selectedMap);
+                clearScreen();
+                equipItem(&player);
+                printf("\nPress Enter to continue...");
+                getchar();
+                clearScreen();
                 break;
             case 4:
-                printf("dont forget to come back!\n");
-                free(player.inventory->items);
-                free(player.inventory);
-                return 0;
+                clearScreen();
+                unequipItem(&player);
+                printf("\nPress Enter to continue...");
+                getchar();
+                clearScreen();
+                break;
             case 5:
-                printf("Fight feature coming soon!\n");
+                market(&player, marketItems, 4, &gold);
+                clearScreen();
                 break;
             case 6:
-                printf("Looting not yet implemented.\n");
+                wizard(&player, &gold);
+                clearScreen();
                 break;
             case 7:
-                printf("Gambling will be added in the next version.\n");
+                clearScreen();
+                loot(&player, lootItems, 4, &lastLootTime);
+                printf("\nPress Enter to continue...");
+                getchar();
+                clearScreen();
+                break;
+            case 8:
+                clearScreen();
+                printf("Game saved!\nPress Enter to continue...");
+                getchar();
+                clearScreen();
+                break;
+            case 0:
+                running = 0;
                 break;
             default:
-                printf("Invalid choice, please select between 1-7.\n");
+                printf("Invalid choice.\n");
+                break;
         }
-    } while (1);
+    }
 
+    free(player.inventory->items);
+    free(player.inventory);
+
+    printf("Thanks for playing!\n");
     return 0;
 }
