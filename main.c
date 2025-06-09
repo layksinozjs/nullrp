@@ -48,6 +48,14 @@ Inventory* createInventory(int initialCapacity) {
 }
 
 
+void clearScreen() {
+#ifdef _WIN32
+    system("cls");   // Windows
+#else
+    system("clear"); // Linux/macOS
+#endif
+}
+
 
 
 int main() {
@@ -128,6 +136,8 @@ int main() {
             break;
     }
     
+    player.inventory->items[player.inventory->itemcount] = selecteditem;
+player.inventory->itemcount++;
     
     
     
@@ -154,11 +164,7 @@ free(player.inventory->items);
     printf("%s\n", player.inventory->items[i].name);
 }
     
-    int experience = 0;
-    int expToLevelUp = 50;
-    int gold = 50;
     
-    void openShop(Character *player);
     
     
     maps tmaps[4] = {
@@ -169,6 +175,8 @@ free(player.inventory->items);
     };
     
     int mapchoice;
+    maps selectedMap;
+    
     
     printf("\n\nSelect Your Map");
     printf("\n-----------------\n");
@@ -178,9 +186,50 @@ free(player.inventory->items);
 printf("Your Choice: ");
 scanf("%d",&mapchoice);
 
+switch (mapchoice) {
+        case 1: case 2: case 3: case 4:
+            selectedMap = tmaps[mapchoice - 1];
+            break;
+        default:
+            printf("Invalid choice, starting with Kevin.\n");
+            selectedMap = tmaps[0];
+            break;
+    }
+    
+    
+    printf("\nTeleporting you to %s...", selectedMap.name);
+    clearScreen();
+    printf("\033[2J\033[H"); 
+    while ((getchar()) != '\n'); 
+    
+    int experience = 0;
+    int expToLevelUp = 50;
+    int gold = 50;
+    
+    printf("   O   Main Menu\n");
+printf("  /|\\  %s / %s\n", player.name, selecteditem.name);
+printf("  / \\  %s\n", selectedMap.name);
+printf("------------------------\n");
+    printf("\nStats:\n");
+    printf("--------------\n");
+    printf("Your Health : %d\nYour Mana = %d \nYour Level %d" ,player.health,player.mana,player.level);
+    printf("\nInventory:\n");
+    
+for (int i = 0; i < player.inventory->itemcount; i++) {
+    printf("- %s (Power: %d, Durability: %d, Magic: %s)\n",
+        player.inventory->items[i].name,
+        player.inventory->items[i].power,
+        player.inventory->items[i].durability,
+        player.inventory->items[i].ismagic ? "Have Magic" : "Not Magic");
+}
+    
+    
     
     FILE *f = fopen("save.txt", "w");
 fprintf(f, "%s %d %d", player.name, player.health, player.level);
 fclose(f);
+free(player.inventory->items);
+free(player.inventory);
 return 0;
+
 }
